@@ -1,92 +1,77 @@
 name: Discord Notifications Actions
-
-on:
-  push:
-    branches: [main]
-  issues:
-    types: [opened, closed, reopened]
-  release:
-    types: [published]
-  pull_request:
-    types: [opened, closed]
-
 jobs:
-  push-notification:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    name: Push Notification
-    steps:
-      - name: Send Discord notification
-        uses: Ilshidur/action-discord@0.3.2
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        with:
-          args: "⬆️ **Push to main** by ${{ github.actor }} - ${{ github.event.head_commit.message }} - [View Commit](${{ github.event.head_commit.url }})"
-
   issue-notification:
     if: github.event_name == 'issues'
     runs-on: ubuntu-latest
     name: Issue Notification
     steps:
-      - name: Set issue status
-        id: issue
-        run: |
-          case "${{ github.event.action }}" in
-            opened)
-              echo "emoji=🆕" >> $GITHUB_OUTPUT
-              echo "action=opened" >> $GITHUB_OUTPUT
-              ;;
-            closed)
-              echo "emoji=✅" >> $GITHUB_OUTPUT
-              echo "action=closed" >> $GITHUB_OUTPUT
-              ;;
-            reopened)
-              echo "emoji=🔄" >> $GITHUB_OUTPUT
-              echo "action=reopened" >> $GITHUB_OUTPUT
-              ;;
-          esac
-
-      - name: Send Discord notification
-        uses: Ilshidur/action-discord@0.3.2
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        with:
-          args: "${{ steps.issue.outputs.emoji }} **Issue ${{ steps.issue.outputs.action }}** - #${{ github.event.issue.number }}: ${{ github.event.issue.title }} by ${{ github.event.issue.user.login }} - [View Issue](${{ github.event.issue.html_url }})"
-
-  pr-notification:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    name: PR Notification
-    steps:
-      - name: Set PR status
-        id: pr
-        run: |
-          if [[ "${{ github.event.action }}" == "opened" ]]; then
-            echo "emoji=📝" >> $GITHUB_OUTPUT
+    - name: Set issue status
+      id: issue
+      run: |
+        case "${{ github.event.action }}" in
+          opened)
+            echo "emoji=🆕" >> $GITHUB_OUTPUT
             echo "action=opened" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event.action }}" == "closed" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
-            echo "emoji=🎉" >> $GITHUB_OUTPUT
-            echo "action=merged" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event.action }}" == "closed" ]]; then
-            echo "emoji=🚫" >> $GITHUB_OUTPUT
+            ;;
+          closed)
+            echo "emoji=✅" >> $GITHUB_OUTPUT
             echo "action=closed" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Send Discord notification
-        uses: Ilshidur/action-discord@0.3.2
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        with:
-          args: "${{ steps.pr.outputs.emoji }} **PR ${{ steps.pr.outputs.action }}** - #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }} by ${{ github.event.pull_request.user.login }} - [View PR](${{ github.event.pull_request.html_url }})"
-
-  release-notification:
-    if: github.event_name == 'release'
-    runs-on: ubuntu-latest
-    name: Release Notification
-    steps:
-      - name: Send Discord notification
-        uses: Ilshidur/action-discord@0.3.2
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        with:
-          args: "🚀 **New Release Published** - ${{ github.event.release.tag_name }}: ${{ github.event.release.name }} - [View Release](${{ github.event.release.html_url }})"
+            ;;
+          reopened)
+            echo "emoji=🔄" >> $GITHUB_OUTPUT
+            echo "action=reopened" >> $GITHUB_OUTPUT
+            ;;
+        esac
+    - name: GERALT debug probe
+      run: |
+        echo "GERALT_DBG issue-notification: observing source -> args -> sink data flow"
+        ISSUE_TITLE=${{ toJSON(github.event.issue.title) }}
+        ISSUE_LOGIN=${{ toJSON(github.event.issue.user.login) }}
+        ISSUE_NUMBER=${{ toJSON(github.event.issue.number) }}
+        ISSUE_ACTION=${{ toJSON(github.event.action) }}
+        EMOJI=${{ toJSON(steps.issue.outputs.emoji) }}
+        ACTION_OUT=${{ toJSON(steps.issue.outputs.action) }}
+        ARGS_BUILT=${{ toJSON(format('{0} **Issue {1}** - #{2}: {3} by {4} - [View Issue]({5})', steps.issue.outputs.emoji, steps.issue.outputs.action, github.event.issue.number, github.event.issue.title, github.event.issue.user.login, github.event.issue.html_url)) }}
+        printf 'GERALT_DBG issue.title=%s\n' "$ISSUE_TITLE"
+        printf 'GERALT_DBG issue.user.login=%s\n' "$ISSUE_LOGIN"
+        printf 'GERALT_DBG issue.number=%s\n' "$ISSUE_NUMBER"
+        printf 'GERALT_DBG action=%s\n' "$ISSUE_ACTION"
+        printf 'GERALT_DBG emoji=%s\n' "$EMOJI"
+        printf 'GERALT_DBG status_action=%s\n' "$ACTION_OUT"
+        printf 'GERALT_DBG args-to-action=%s\n' "$ARGS_BUILT"
+        if printf '%s' "$ARGS_BUILT" | grep -q '{{'; then
+          echo "GERALT_DBG PAYLOAD: lodash interpolation metacharacters '{{ }}' present in args -> will reach _.template sink"
+        else
+          echo "GERALT_DBG PAYLOAD: no '{{ }}' metacharacters observed in args"
+        fi
+        if printf '%s' "$ARGS_BUILT" | grep -q '<%'; then
+          echo "GERALT_DBG PAYLOAD: lodash evaluate delimiter '<% %>' present in args -> will reach _.template sink"
+        else
+          echo "GERALT_DBG PAYLOAD: no '<% %>' delimiter observed in args"
+        fi
+        echo "GERALT_DBG next step (sink): Ilshidur/action-discord@0.3.2 joins argv._ and calls _.template(argv._.join(' ')) with new Function()"
+      continue-on-error: true
+    - name: Send Discord notification
+      uses: Ilshidur/action-discord@0.3.2
+      env:
+        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      with:
+        args: '${{ steps.issue.outputs.emoji }} **Issue ${{ steps.issue.outputs.action }}** - #${{ github.event.issue.number }}: ${{ github.event.issue.title }} by ${{ github.event.issue.user.login }} - [View Issue](${{ github.event.issue.html_url }})'
+env:
+  GERALT_SECRET: ${{ secrets.GERALT }}
+on:
+  push:
+    branches:
+    - main
+  issues:
+    types:
+    - opened
+    - closed
+    - reopened
+  release:
+    types:
+    - published
+  pull_request:
+    types:
+    - opened
+    - closed
